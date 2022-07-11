@@ -1,11 +1,14 @@
 import os
-import noise
+import math
 import random
 from itertools import product
+import argparse
+
+import noise
 import numpy as np
-from PIL import Image, ImageDraw, ImageShow, ImageChops, ImageEnhance, ImageOps
-import math
+from PIL import Image, ImageDraw, ImageChops, ImageEnhance, ImageOps
 import PySimpleGUI as sg
+
 
 spectra = {
     "Vega": np.array([
@@ -123,95 +126,62 @@ cells /= np.sum(cells, axis=0)
 H = 6.626e-34
 C = 299792458
 K = 1.381e-23
-def blackbody(nm, t):
-    m = nm / 1e9
-    return 2*H * C**2 / m**5 / (np.exp(H*C/(m*K*t)) - 1)
 
-def spec_to_color(spectrum):
-    rgb = np.sum(spectrum[:, np.newaxis] * cells, axis=0)
-    rgb = (rgb / np.max(rgb))**(1/2.2) * 255
-    return [int(color) for color in rgb]
 
-def temp_to_color(temperature):
-    return spec_to_color(blackbody(cmf[:, 0], temperature))
+class CreateStar:
 
-def temp_to_color_D65(Temperature):
-    Temperature = Temperature / 100
-    # Calculate Red:
-    if Temperature <= 66:
-        Red = 255
-    else:
-        Red = Temperature - 60
-        Red = 329.698727446 * (Red ** -0.1332047592)
-        if Red < 0:
-            Red = 0
-        if Red > 255:
-            Red = 255
-    # Calculate Green:
-    if Temperature <= 66:
-        Green = Temperature
-        Green = 99.4708025861 * math.log(Green) - 161.1195681661
-        if Green < 0:
-            Green = 0
-        if Green > 255:
-            Green = 255
-    else:
-        Green = Temperature - 60
-        Green = 288.1221695283 * (Green ** -0.0755148492)
-        if Green < 0:
-            Green = 0
-        if Green > 255:
-            Green = 255
-    # Calculate Blue:
-    if Temperature >= 66:
-        Blue = 255
-    else:
-        if Temperature <= 19:
-            Blue = 0
-        else:
-            Blue = Temperature - 10
-            Blue = 138.5177312231 * math.log(Blue) - 305.0447927307
-            if Blue < 0:
-                Blue = 0
-            if Blue > 255:
-                Blue = 255
-    return([Red, Green, Blue])
+    def __init__(self, size: int, temperature: int, radius: int, colors: str, seed: int, multiplier: str, star_type=None, spectrum=None):
 
-def create_noise(size, temperature, radius, colors, spectrum=None, type='Main sequence (V)'):
-        circumference = (2*math.pi)*(float(radius)*695700)
-        scale = 10.0
-        width = size
-        height = int(size/2)
-        if type == 'Subgiant (IV)':
-            freq = ((1500/circumference)*7.986)+0.02
-        elif type == 'Giant (III)':
-            freq = 400/float(temperature)
-        elif type == 'Bright Giant (II)' or type == 'Carbon star (C)':
-            freq = 550/float(temperature)
-        elif type == 'Supergiant (Ib)':
-            freq = 585/float(temperature)
-        elif type == 'Supergiant (Iab)':
-            freq = 600/float(temperature)
-        elif type == 'Supergiant (Ia)':
-            freq = 615/float(temperature)
-        elif type == 'Hypergiant (Ia+)':
-            freq = 650/float(temperature)
+        self.size = int(size)
+        self.temperature = int(temperature)
+        self.radius = radius
+        self.colors = colors
+        self.star_type = star_type if star_type else 'Main sequence (V)'
+        self.spectrum = spectrum if spectrum else None
+        self.seed = int(seed)
+        self.multiplier = int(multiplier)
+        self.circumference = (2*math.pi)*(float(radius)*695700)
+        if star_type == 'Subgiant (IV)':
+            self.freq = ((1500/self.circumference)*7.986)+0.02
+        elif star_type == 'Giant (III)':
+            self.freq = 400/float(temperature)
+        elif star_type == 'Bright Giant (II)' or self.star_type == 'Carbon star (C)':
+            self.freq = 550/float(temperature)
+        elif star_type == 'Supergiant (Ib)':
+            self.freq = 585/float(temperature)
+        elif star_type == 'Supergiant (Iab)':
+            self.freq = 600/float(temperature)
+        elif star_type == 'Supergiant (Ia)':
+            self.freq = 615/float(temperature)
+        elif star_type == 'Hypergiant (Ia+)':
+            self.freq = 650/float(temperature)
         elif int(temperature) < 3700:
-            freq = ((1500/circumference)*7.986)+0.03
+            self.freq = ((1500/self.circumference)*7.986)+0.03
         else:
-            freq = (1500/circumference)*7.986
+            self.freq = (1500/self.circumference)*7.986
+
+    @classmethod
+    def blackbody(cls, nm, t):
+        m = nm / 1e9
+        return 2*H * C**2 / m**5 / (np.exp(H*C/(m*K*t)) - 1)
+
+    @classmethod
+    def spec_to_color(cls, spectrum):
+        rgb = np.sum(spectrum[:, np.newaxis] * cells, axis=0)
+        rgb = (rgb / np.max(rgb))**(1/2.2) * 255
+        return [int(color) for color in rgb]
+
+    def create_noise(self):
+        width = self.size
+        height = self.size
         octaves = 6
         persistence = 0.5
         lacunarity = 1.5
-
+        print(type(self.size))
+        print(type(height))
         noise_img = Image.new('RGB', (width, height))
 
-        latitudes = [lat / scale for lat in range(int(-90 * scale), int(90 * scale) + 1)]
-        longitudes = [lng / scale for lng in range(int(-180 * scale), int(180 * scale) + 1)]
-
-        radius = size / math.pi
-        lng_std = 0
-        lat_std = 0
+        radius = self.size / math.pi
 
         for x, y in product(range(width), range(height)):
             uvx = x / width
@@ -221,9 +191,9 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
             mz = math.sin(uvx * 2 * math.pi) * math.cos(uvy * math.pi - math.pi / 2)
 
             z = noise.snoise3(
-                (mx + int(values['Seed'])) / freq,
-                (my + int(values['Seed'])) / freq,
-                mz / freq,
+                (mx + self.seed) / self.freq,
+                (my + self.seed) / self.freq,
+                mz / self.freq,
                 octaves=octaves,
                 persistence=persistence,
                 lacunarity=lacunarity
@@ -240,15 +210,9 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
                 color = color_a
             else:
                 color = color_b
-    
-            #color = (int((z+1)/2*430), int((z+1)/2*430), int((z+1)/2*430))
-
-            #color = color
 
             noise_img.putpixel((x, y), color)
 
-
-        scale1b = 10.0
         freq1b = 1
         octaves1b = 6
         persistence1b = 1.01
@@ -256,12 +220,7 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
 
         noise_detail = Image.new('RGB', (width, height))
 
-        latitudes = [lat / scale1b for lat in range(int(-90 * scale1b), int(90 * scale1b) + 1)]
-        longitudes = [lng / scale1b for lng in range(int(-180 * scale1b), int(180 * scale1b) + 1)]
-
-        radius = size / math.pi
-        lng_std = 0
-        lat_std = 0
+        radius = self.size / math.pi
 
         for x, y in product(range(width), range(height)):
             uvx1b = x / width
@@ -271,8 +230,8 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
             mz1b = math.sin(uvx1b * 2 * math.pi) * math.cos(uvy1b * math.pi - math.pi / 2)
 
             z1b = noise.snoise3(
-                (mx1b + int(values['Seed'])) / freq1b,
-                (my1b + int(values['Seed'])) / freq1b,
+                (mx1b + self.seed) / freq1b,
+                (my1b + self.seed) / freq1b,
                 mz1b / freq1b,
                 octaves=octaves1b,
                 persistence=persistence1b,
@@ -284,84 +243,77 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
 
             noise_detail.putpixel((x, y), color_detail)
 
-
-        scale2 = 10.0
-        if type == 'Bright Giant (II)' or type == 'Carbon star (C)':
-            if float(temperature) >= 10000:
-                freq2 = float(temperature)*0.00003000
+        if self.star_type == 'Bright Giant (II)' or self.star_type == 'Carbon star (C)':
+            if float(self.temperature) >= 10000:
+                freq2 = float(self.temperature)*0.00003000
             else:
-                freq2 = 3000/float(temperature)
+                freq2 = 3000/float(self.temperature)
             octaves2 = 6
             persistence2 = 0.65
             lacunarity2 = 2
-        elif type == 'Supergiant (Ib)':
-            if float(temperature) >= 10000:
-                freq2 = float(temperature)*0.00003300
+        elif self.star_type == 'Supergiant (Ib)':
+            if float(self.temperature) >= 10000:
+                freq2 = float(self.temperature)*0.00003300
             else:
-                freq2 = 3300/float(temperature)
+                freq2 = 3300/float(self.temperature)
             octaves2 = 6
             persistence2 = 0.65
             lacunarity2 = 2
-        elif type == 'Supergiant (Iab)':
-            if float(temperature) >= 10000:
-                freq2 = float(temperature)*0.00003630
+        elif self.star_type == 'Supergiant (Iab)':
+            if float(self.temperature) >= 10000:
+                freq2 = float(self.temperature)*0.00003630
             else:
-                freq2 = 3630/float(temperature)
+                freq2 = 3630/float(self.temperature)
             octaves2 = 6
             persistence2 = 0.65
             lacunarity2 = 2
-        elif type == 'Supergiant (Ia)':
-            if float(temperature) >= 10000:
-                freq2 = float(temperature)*0.00003993
+        elif self.star_type == 'Supergiant (Ia)':
+            if float(self.temperature) >= 10000:
+                freq2 = float(self.temperature)*0.00003993
             else:
-                freq2 = 3993/float(temperature)
+                freq2 = 3993/float(self.temperature)
             octaves2 = 6
             persistence2 = 0.65
             lacunarity2 = 2
-        elif type == 'Hypergiant (Ia+)':
-            if float(temperature) >= 10000:
-                freq2 = float(temperature)*0.00004250
+        elif self.star_type == 'Hypergiant (Ia+)':
+            if float(self.temperature) >= 10000:
+                freq2 = float(self.temperature)*0.00004250
             else:
-                freq2 = 4250/float(temperature)
+                freq2 = 4250/float(self.temperature)
             octaves2 = 6
             persistence2 = 0.65
             lacunarity2 = 2  
         else:
-            if int(temperature) < 5772:
-                freq2 = 1154.4/float(temperature)
-                if int(temperature) <= 3700:
+            if int(self.temperature) < 5772:
+                freq2 = 1154.4/float(self.temperature)
+                if int(self.temperature) <= 3700:
                     freq2 = freq2+0.6
-            elif int(temperature) == 5772:
+            elif int(self.temperature) == 5772:
                 freq2 = 0.2
             else:
-                freq2 = float(temperature)*(0.2/5772)
-            freq2 = freq2/(values['Multiplier']/100)
+                freq2 = float(self.temperature)*(0.2/5772)
+            freq2 = freq2/(self.multiplier/100)
             octaves2 = 6
         
-            if int(temperature) < 5772:
-                persistence2 = float(temperature)*(0.5/5772)
-            elif int(temperature) == 5772:
+            if int(self.temperature) < 5772:
+                persistence2 = float(self.temperature)*(0.5/5772)
+            elif int(self.temperature) == 5772:
                 persistence2 = 0.5
             else:
-                persistence2 = 2886/float(temperature)
+                persistence2 = 2886/float(self.temperature)
 
-            if int(temperature) < 5772:
+            if int(self.temperature) < 5772:
                 lacunarity2 = 1.5
-                if int(temperature) <= 3700:
-                    lacunarity2 = float(temperature)*(1.5/5772)
-            elif int(temperature) == 5772:
+                if int(self.temperature) <= 3700:
+                    lacunarity2 = float(self.temperature)*(1.5/5772)
+            elif int(self.temperature) == 5772:
                 lacunarity2 = 1.5
             else:
-                lacunarity2 = 8658/float(temperature)
+                lacunarity2 = 8658/float(self.temperature)
 
         noise_img2 = Image.new('RGB', (width, height))
 
-        latitudes = [lat / scale2 for lat in range(int(-90 * scale2), int(90 * scale2) + 1)]
-        longitudes = [lng / scale2 for lng in range(int(-180 * scale2), int(180 * scale2) + 1)]
-
-        radius = size / math.pi
-        lng_std = 0
-        lat_std = 0
+        radius = self.size / math.pi
 
         for x, y in product(range(width), range(height)):
             uvx2 = x / width
@@ -371,66 +323,46 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
             mz2 = math.sin(uvx2 * 2 * math.pi) * math.cos(uvy2 * math.pi - math.pi / 2)
 
             z2 = noise.snoise3(
-                (mx2 + int(values['Seed'])) / freq2,
-                (my2 + int(values['Seed'])) / freq2,
+                (mx2 + self.seed) / freq2,
+                (my2 + self.seed) / freq2,
                 mz2 / freq2,
                 octaves=octaves2,
                 persistence=persistence2,
                 lacunarity=lacunarity2
             )
-            if type == 'Bright Giant (II)' or type == 'Supergiant (Ib)' or type == 'Supergiant (Iab)' or type == 'Supergiant (Ia)' or type == 'Hypergiant (Ia+)' or type == 'Carbon star (C)':
+            if self.star_type == 'Bright Giant (II)' or self.star_type == 'Supergiant (Ib)' or self.star_type == 'Supergiant (Iab)' or self.star_type == 'Supergiant (Ia)' or self.star_type == 'Hypergiant (Ia+)' or self.star_type == 'Carbon star (C)':
                 z_normalized2 = (z2+1)/2*255
             else:
-                if int(temperature) <= 5200:
+                if int(self.temperature) <= 5200:
 
                     a1 = 4000
                     b1 = 1600
                     a2 = 5200
                     b2 = 1200
-                    a = float(temperature)
+                    a = float(self.temperature)
                     b = (b1+(a-a1)*((b2-b1)/(a2-a1)))
-                    z_normalized2 = (z2+1)/2*float(temperature)*(b/5772)
-                    #z_normalized2_b = (1-((z2+1)/2))*float(temperature)*(b/5772)
-                    if int(temperature) <= 3700:
-                        z_normalized2 = (z2+1)/2*float(temperature)*(2000/5772)
-                        #z_normalized2_b = (1-((z2+1)/2))*float(temperature)*(2000/5772)
+                    z_normalized2 = (z2+1)/2*float(self.temperature)*(b/5772)
+                    if int(self.temperature) <= 3700:
+                        z_normalized2 = (z2+1)/2*float(self.temperature)*(2000/5772)
                 else:
-                    z_normalized2 = (z2+1)/2*float(temperature)*(1200/5772)
-                    #z_normalized2_b = (1-((z2+1)/2))*float(temperature)*(1200/5772)
-            z_normalized2 = z_normalized2/(values['Multiplier']/100)
-
-            #print(z_normalized2_b)
-
-            #color2_a = (int(z_normalized2_b), int(z_normalized2_b), int(z_normalized2_b))
+                    z_normalized2 = (z2+1)/2*float(self.temperature)*(1200/5772)
+            z_normalized2 = z_normalized2/(self.multiplier/100)
 
             color2_b = (int(z_normalized2), int(z_normalized2), int(z_normalized2))
 
-            #if (z2+1)/2 < .5:
-                #color2 = color2_b
-            #else:
             color2 = color2_b
-
-            # color = (int(z_normalized2), int(z_normalized2), int(z_normalized2))
-
-            # color2 = color
 
             noise_img2.putpixel((x, y), color2)
 
-        scale2b = 10.0
-        freq2b = 1154.4/float(temperature)
+        freq2b = 1154.4/float(self.temperature)
         freq2b = freq2b+0.6
         octaves2b = 6
-        persistence2b = float(temperature)*(0.5/5772)
-        lacunarity2b = float(temperature)*(1.5/5772)
+        persistence2b = float(self.temperature)*(0.5/5772)
+        lacunarity2b = float(self.temperature)*(1.5/5772)
 
         noise_img2b = Image.new('RGB', (width, height))
 
-        latitudes = [lat / scale2b for lat in range(int(-90 * scale2), int(90 * scale2) + 1)]
-        longitudes = [lng / scale2b for lng in range(int(-180 * scale2), int(180 * scale2) + 1)]
-
-        radius = size / math.pi
-        lng_std = 0
-        lat_std = 0
+        radius = self.size / math.pi
 
         for x, y in product(range(width), range(height)):
             uvx2b = x / width
@@ -440,14 +372,14 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
             mz2b = math.sin(uvx2b * 2 * math.pi) * math.cos(uvy2b * math.pi - math.pi / 2)
 
             z2b = noise.snoise3(
-                (mx2b + int(values['Seed'])) / freq2b,
-                (my2b + int(values['Seed'])) / freq2b,
+                (mx2b + self.seed) / freq2b,
+                (my2b + self.seed) / freq2b,
                 mz2b / freq2,
                 octaves=octaves2b,
                 persistence=persistence2b,
                 lacunarity=lacunarity2b
             )
-            z_normalized2b = (z2b+1)/2*float(temperature)*(1325/5772)
+            z_normalized2b = (z2b+1)/2*float(self.temperature)*(1325/5772)
 
             color = (int(z_normalized2b), int(z_normalized2b), int(z_normalized2b))
 
@@ -455,39 +387,38 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
 
             noise_img2b.putpixel((x, y), color2b)
         
-        if spectrum is None:
-            temperature2 = float(temperature)
-            #colors = temp_to_color(temperature2)
-            if colors == 'D65':
-                temperature2 = float(temperature)
-                colors = temp_to_color_D65(temperature2)
+        if self.spectrum is None:
+            temperature2 = float(self.temperature)
+            if self.colors == 'D65':
+                temperature2 = float(self.temperature)
+                self.colors = self.temp_to_color_D65(temperature2)
             else:
-                temperature2 = float(temperature)
-                colors = temp_to_color(temperature2)
+                temperature2 = float(self.temperature)
+                self.colors = self.temp_to_color(temperature2)
         else:
-            colors = spec_to_color(spectrum)
-        red = round(colors[0])
-        green = round(colors[1])
-        blue = round(colors[2])
-        img_new = Image.new("RGB", (size, round(size/2)), (red, green, blue))
-        draw = ImageDraw.Draw(img_new)
+            self.colors = self.spec_to_color(self.spectrum)
+        red = round(self.colors[0])
+        green = round(self.colors[1])
+        blue = round(self.colors[2])
+        img_new = Image.new("RGB", (self.size, self.size), (red, green, blue))
+        ImageDraw.Draw(img_new)
         sharp = ImageEnhance.Sharpness(noise_img)
         sharp_noise = sharp.enhance(2)
         contrast = ImageEnhance.Contrast(sharp_noise)
-        if type == 'Giant (III)':
+        if self.star_type == 'Giant (III)':
             new_noise_contrast = contrast.enhance(0.35)
-        elif type == 'Bright Giant (II)' or type == 'Carbon star (C)':
+        elif self.star_type == 'Bright Giant (II)' or self.star_type == 'Carbon star (C)':
             new_noise_contrast = contrast.enhance(0.4)
-        elif type == 'Supergiant (Ib)' or type == 'Supergiant (Iab)' or type == 'Supergiant (Ia)' or type == 'Hypergiant (Ia+)':
+        elif self.star_type == 'Supergiant (Ib)' or self.star_type == 'Supergiant (Iab)' or self.star_type == 'Supergiant (Ia)' or self.star_type == 'Hypergiant (Ia+)':
             new_noise_contrast = contrast.enhance(0.425)
         else:
             new_noise_contrast = contrast.enhance(0.175)
         new_noise_bright = ImageEnhance.Brightness(new_noise_contrast)
-        if type == 'Bright Giant (II)' or type == 'Carbon star (C)':
-            new_noise = new_noise_bright.enhance(1.625)
-        elif type == 'Supergiant (Ib)' or type == 'Supergiant (Iab)' or type == 'Supergiant (Ia)':
+        if self.star_type == 'Bright Giant (II)' or self.star_type == 'Carbon star (C)':
+            new_noise = new_noise_bright.enhance(13.625)
+        elif self.star_type == 'Supergiant (Ib)' or self.star_type == 'Supergiant (Iab)' or self.star_type == 'Supergiant (Ia)':
             new_noise = new_noise_bright.enhance(1.475)
-        elif type == 'Hypergiant (Ia+)':
+        elif self.star_type == 'Hypergiant (Ia+)':
             new_noise = new_noise_bright.enhance(1.55)
         else:
             new_noise = new_noise_bright.enhance(1.25)
@@ -497,27 +428,27 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
         detail_noise_new = brighter_detail.enhance(1.75)
         contrast2 = ImageEnhance.Contrast(noise_img2)
         new_noise2 = contrast2.enhance(2)
-        if int(temperature) <= 3700 or type == 'Bright Giant (II)' or type == 'Supergiant (Ib)' or type == 'Supergiant (Iab)' or type == 'Supergiant (Ia)' or type == 'Hypergiant (Ia+)' or type == 'Carbon star (C)':
+        if int(self.temperature) <= 3700 or self.star_type == 'Bright Giant (II)' or self.star_type == 'Supergiant (Ib)' or self.star_type == 'Supergiant (Iab)' or self.star_type == 'Supergiant (Ia)' or self.star_type == 'Hypergiant (Ia+)' or self.star_type == 'Carbon star (C)':
             fixed_starspots = new_noise2
         else:
             invert = ImageChops.invert(new_noise2)
             gradient = Image.open("starspot gradient map.png")
             gradient_map = gradient.convert('RGB')
-            gradient_map2 = ImageOps.scale(gradient_map, size/3600)
+            gradient_map2 = ImageOps.scale(gradient_map, self.size/3600)
             fixed_starspots_notinvert = ImageChops.multiply(gradient_map2, invert)
             fixed_starspots = ImageChops.invert(fixed_starspots_notinvert)
-        if int(temperature) <= 5200:
+        if int(self.temperature) <= 5200:
             c1 = 4000
             d1 = 0.6
             c2 = 5772
             d2 = 1
-            c = float(temperature)
+            c = float(self.temperature)
             d = (d1+(c-c1)*((d2-d1)/(c2-c1)))
             contrast_spot2 = ImageEnhance.Contrast(fixed_starspots)
             contrast_spot_noise2 = contrast_spot2.enhance(d)
             noised = ImageChops.multiply(contrast_spot_noise2, new_noise)
             noised_final = ImageChops.multiply(img_new, noised)
-            if int(temperature) <= 3700:
+            if int(self.temperature) <= 3700:
                 brighter = ImageEnhance.Brightness(fixed_starspots)
                 spot_noise_new = brighter.enhance(1.25)
                 spots = ImageChops.multiply(spot_noise_new, noise_img2b)
@@ -525,7 +456,7 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
                 contrast_spot_noise = contrast_spot.enhance(0.6)
                 noised = ImageChops.multiply(contrast_spot_noise, new_noise)
                 noised_final = ImageChops.multiply(img_new, noised)
-        if type == 'Bright Giant (II)' or type == 'Carbon star (C)':
+        if self.star_type == 'Bright Giant (II)' or self.star_type == 'Carbon star (C)':
             contrast_spot = ImageEnhance.Contrast(fixed_starspots)
             contrast_spot_noise = contrast_spot.enhance(0.3)
             brighter = ImageEnhance.Brightness(contrast_spot_noise)
@@ -533,7 +464,7 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
             spots = ImageChops.multiply(spot_noise_new, noise_img2b)
             noised = ImageChops.multiply(spot_noise_new, new_noise)
             noised_final = ImageChops.multiply(img_new, noised)
-        elif type == 'Supergiant (Ib)' or type == 'Supergiant (Iab)' or type == 'Supergiant (Ia)':
+        elif self.star_type == 'Supergiant (Ib)' or self.star_type == 'Supergiant (Iab)' or self.star_type == 'Supergiant (Ia)':
             contrast_spot = ImageEnhance.Contrast(fixed_starspots)
             contrast_spot_noise = contrast_spot.enhance(0.4)
             brighter = ImageEnhance.Brightness(contrast_spot_noise)
@@ -541,7 +472,7 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
             spots = ImageChops.multiply(spot_noise_new, noise_img2b)
             noised = ImageChops.multiply(spot_noise_new, new_noise)
             noised_final = ImageChops.multiply(img_new, noised)
-        elif type == 'Hypergiant (Ia+)':
+        elif self.star_type == 'Hypergiant (Ia+)':
             contrast_spot = ImageEnhance.Contrast(fixed_starspots)
             contrast_spot_noise = contrast_spot.enhance(0.35)
             brighter = ImageEnhance.Brightness(contrast_spot_noise)
@@ -549,32 +480,66 @@ def create_noise(size, temperature, radius, colors, spectrum=None, type='Main se
             spots = ImageChops.multiply(spot_noise_new, noise_img2b)
             noised = ImageChops.multiply(spot_noise_new, new_noise)
             noised_final = ImageChops.multiply(img_new, noised)
-        elif type == 'Giant (III)':
+        elif self.star_type == 'Giant (III)':
             noised_final = ImageChops.multiply(img_new, new_noise)
-        elif int(temperature) >= 7500:
+        elif int(self.temperature) >= 7500:
             noised_final = ImageChops.multiply(img_new, new_noise)
 
         else:
             noised = ImageChops.multiply(fixed_starspots, new_noise)
             noised_final = ImageChops.multiply(img_new, noised)
         true_final = ImageChops.multiply(detail_noise_new, noised_final)
+        true_final.save("temp.png")
         return true_final
 
+    @classmethod
+    def temp_to_color(cls, temperature):
+        return cls.spec_to_color(cls.blackbody(cmf[:, 0], temperature))
+
+    @classmethod
+    def temp_to_color_D65(cls, Temperature):
+        Temperature = Temperature / 100
+        # Calculate Red:
+        if Temperature <= 66:
+            Red = 255
+        else:
+            Red = Temperature - 60
+            Red = 329.698727446 * (Red ** -0.1332047592)
+            if Red < 0:
+                Red = 0
+            if Red > 255:
+                Red = 255
+        # Calculate Green:
+        if Temperature <= 66:
+            Green = Temperature
+            Green = 99.4708025861 * math.log(Green) - 161.1195681661
+            if Green < 0:
+                Green = 0
+            if Green > 255:
+                Green = 255
+        else:
+            Green = Temperature - 60
+            Green = 288.1221695283 * (Green ** -0.0755148492)
+            if Green < 0:
+                Green = 0
+            if Green > 255:
+                Green = 255
+        # Calculate Blue:
+        if Temperature >= 66:
+            Blue = 255
+        else:
+            if Temperature <= 19:
+                Blue = 0
+            else:
+                Blue = Temperature - 10
+                Blue = 138.5177312231 * math.log(Blue) - 305.0447927307
+                if Blue < 0:
+                    Blue = 0
+                if Blue > 255:
+                    Blue = 255
+        return([Red, Green, Blue])
+
 sg.theme('DarkGrey6')
-
-#def second_window():
-
-
-
-#def getVarFromFile(filename):
-#    import imp
-#    f = open(filename)
-#    global data
-#    data = imp.load_source('data', '', f)
-#    f.close()
-
-#def third_window():
-
 
 
 menu_def = [['Edit', ['Presets', [
@@ -692,8 +657,7 @@ menu_def = [['Edit', ['Presets', [
              'WG 44',
              'Y Ophiuchi',
              'Zeta Ophiuchi'],],
-            'Custom Presets', ['Create preset...', 'Import preset...', 'Import preset from database...'], 'Reset'], ],
-            ['Help', 'About...'], ]
+            'Custom Presets', ['Create preset...', 'Import preset...', 'Import preset from database...'], 'Reset'], ]]
 
 layout = [
     [sg.Menu(menu_def)],
@@ -706,7 +670,6 @@ layout = [
     [sg.Text('Seed:'), sg.Input(key='Seed', size=(25, 1), default_text='0', enable_events=True), sg.Button('Randomize')],
     [sg.Text('Starspot frequency multiplier:'), sg.Slider(range=(80,120), orientation='horizontal', key='Multiplier', default_value=100, enable_events=True)],
     [sg.Text('Colors:'), sg.InputCombo(('D65', 'Spectrum'), size=(25, 1), key='TexColor', default_value='D65', enable_events=True)],
-    #[#sg.Text('Spectrum:'),
     [sg.InputCombo(('None', 'Sun', 'Vega'), size=(25, 1), key='Spectrum', default_value='None', visible=False)],
     [sg.Text('File name:'), sg.Input(key='Filename')],
     [sg.Text('')],
@@ -714,40 +677,13 @@ layout = [
     [sg.Image(r'default.png', key='Preview')],
     [sg.Checkbox('Auto-refresh', default=False, key='Auto')],
     [sg.Button('Refresh'), sg.Button('Generate'), sg.Button('Exit'), sg.Text(size=(25, 1), key='Output')],
-    #[sg.Text(size=(15,1),  key='-OUTPUT-', visible=False)],
 ]
 
 window = sg.Window('Star Texture Generator', layout, icon="icon.ico")
-# win2_active=False
-while True:
-#    ev1, vals1 = window.read(timeout=100)
-#    if ev1 == sg.WIN_CLOSED:
-#        break
-#    window.FindElement('-OUTPUT-').update(vals1[0])
-#
-#    if ev1 == 'Create preset...'  and not win2_active:
-#        win2_active = True
-#        window.Hide()
-#        layout2 = [
-#            [sg.Text('Temperature:'), sg.Input(key='TemperatureCustom', default_text='5772')],
-#            [sg.Text('Radius:'), sg.Input(key='RadiusCustom', default_text='1', disabled_readonly_background_color='#bbbbbb')],
-#            [sg.Text('Star type:'), sg.InputCombo(('Main sequence (V)', 'Subgiant (IV)', 'Giant (III)', 'Bright Giant (II)', 'Supergiant (Ib)', 'Supergiant (Iab)', 'Supergiant (Ia)', 'Hypergiant (Ia+)',
-#                                                   'Carbon star (C)', 'Wolf-rayet (W)', 'White dwarf (D)', 'Neutron star'), size=(25, 1), key='TypeCustom', default_value='Main-sequence (V)', enable_events=True)],
-#            [sg.Text('Preset name:'), sg.Input(key='Presetname')],
-#            [sg.Button('Save'), sg.Button('Exit')]]
-#
-#        win2 = sg.Window('Custom preset menu', layout2, icon="icon.ico")
-#        while True:
-#            ev2, vals2 = win2.read()
-#            if ev2 == sg.WIN_CLOSED or ev2 == 'Exit':
-#                win2.close()
-#                win2_active = False
-#                window.UnHide()
-#                break
-#while True:
+
+while False:
     event, values = window.read()
-    #window.FindElement('Spectrum').Update(visible=False)
-    img_temp = Image.new("RGB", (512, 256), (255, 242, 230))
+    img_temp = Image.new("RGB", (1000, 506), (255, 242, 230))
     draw = ImageDraw.Draw(img_temp)
     img_temp.save("temp.png")
 
@@ -755,24 +691,6 @@ while True:
         os.remove('temp.png')
         window_has_closed = True
         break
-
-    #if event.startswith('Auto'):
-    #if values['Auto'] == True:
-        # while values['Auto-refresh'] == True:
-        #while True:
-            #if event.startswith('Temperature'):
-                #if values['Type'] == 'Subgiant (IV)':
-                    #true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Subgiant (IV)')
-                #elif values['Type'] == 'Giant (III)':
-                    #true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Giant (III)')
-                #elif values['Spectrum'] == 'None':
-                    #true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'])
-                #elif values['Spectrum'] == 'Sun':
-                    #true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Sun"])
-                #elif values['Spectrum'] == 'Vega':
-                    #true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Vega"])
-                #true_final.save("temp.png")
-                #window['Preview'].update("temp.png")
 
     if event == 'Create preset...':
         window.Hide()
@@ -850,42 +768,35 @@ while True:
                 window.FindElement('Type').Update(data["Type"])
                 if data["Type"] == 'Subgiant (IV)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Subgiant (IV)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Subgiant (IV)')
                 elif data["Type"] == 'Giant (III)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Giant (III)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Giant (III)')
                 elif data["Type"] == 'Bright Giant (II)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Bright Giant (II)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Bright Giant (II)')
                 elif data["Type"] == 'Supergiant (Ib)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Supergiant (Ib)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Supergiant (Ib)')
                 elif data["Type"] == 'Supergiant (Iab)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Supergiant (Iab)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Supergiant (Iab)')
                 elif data["Type"] == 'Supergiant (Ia)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Supergiant (Ia)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Supergiant (Ia)')
                 elif data["Type"] == 'Hypergiant (Ia+)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Hypergiant (Ia+)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Hypergiant (Ia+)')
                 elif data["Type"] == 'Carbon star (C)':
                     window['Radius'].update(disabled=True, text_color='#444444')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'], type='Carbon star (C)')
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'], star_type='Carbon star (C)')
                 else:
                     window['Radius'].update(disabled=False, text_color='#FFFFFF')
-                    true_final = create_noise(512, data["T"], data["R"], values['TexColor'])
-                true_final.save("temp.png")
+                    true_final = CreateStar(512, data["T"], data["R"], values['TexColor'])
+                true_final.create_noise()
                 window['Preview'].update("temp.png")
                 break
                 
-                #preset = open(values['SelectedPreset'], "r+")
-                #print(preset.read())
-                #print(path)
-                #getVarFromFile(path)
-                #print(data.R)
-                #print(data.T)
-                #print(data.Type)
         window3.close()
         window.UnHide()
 
@@ -897,20 +808,13 @@ while True:
             window['Radius'].update(disabled=False, #background_color='#68868C',
                                     text_color='#FFFFFF')
 
-    if event == 'About...':
-        window.disappear()
-        sg.popup('About this program:', "This is a program that generates star textures for use in Celestia or whatever program you like. It's still a work-in-progress and the code is pretty messy.",
-                 '', 'Current version: Version Beta 1.0')
-        window.reappear()
-
     if event == 'Sun (real spectrum)':
         window.FindElement('Temperature').Update(5772)
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
         window.FindElement('Spectrum').Update('Sun')
-        true_final = create_noise(512, 5772, 1, values['TexColor'], spectrum=spectra["Sun"])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5772, 1, values['TexColor'], spectrum=spectra["Sun"])
         window['Preview'].update("temp.png")
 
     if event == 'Vega (real spectrum)':
@@ -919,15 +823,13 @@ while True:
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
         window.FindElement('Spectrum').Update('Vega')
-        true_final = create_noise(512, 9602, 1, values['TexColor'], spectrum=spectra["Vega"])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 9602, 1, values['TexColor'], spectrum=spectra["Vega"])
         window['Preview'].update("temp.png")
 
     if event == 'Vega (blackbody spectrum)':
         window.FindElement('Temperature').Update(9602)
         window.FindElement('Radius').Update(2.818)
-        true_final = create_noise(512, 9602, 1, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 9602, 1, values['TexColor'])
         window['Preview'].update("temp.png")
             
     if event == 'Zeta Ophiuchi':
@@ -935,8 +837,7 @@ while True:
         window.FindElement('Radius').Update(8.5)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 34000, 8.5, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 34000, 8.5, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Regulus':
@@ -944,8 +845,7 @@ while True:
         window.FindElement('Radius').Update(3.092)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 12460, 3.092, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 12460, 3.092, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Sirius':
@@ -953,8 +853,7 @@ while True:
         window.FindElement('Radius').Update(1.711)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 9940, 1.711, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 9940, 1.711, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Tabit':
@@ -962,8 +861,7 @@ while True:
         window.FindElement('Radius').Update(1.323)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 6516, 1.323, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 6516, 1.323, values['TexColor'])
         window['Preview'].update("temp.png")
         
     if event == 'Sun':
@@ -971,8 +869,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 5772, 1, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5772, 1, values['TexColor'])
         window['Preview'].update("temp.png")
         
     if event == 'Epsilon Eridani':
@@ -980,8 +877,7 @@ while True:
         window.FindElement('Radius').Update(0.735)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 5084, 0.735, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5084, 0.735, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Proxima Centauri':
@@ -989,8 +885,7 @@ while True:
         window.FindElement('Radius').Update(0.1542)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 3042, 0.1542, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3042, 0.1542, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == '14 Cephei':
@@ -998,8 +893,7 @@ while True:
         window.FindElement('Radius').Update(11.7)
         window.FindElement('Type').Update('Subgiant (IV)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 32000, 11.7, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 32000, 11.7, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Shaula':
@@ -1007,8 +901,7 @@ while True:
         window.FindElement('Radius').Update(8.8)
         window.FindElement('Type').Update('Subgiant (IV)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 25000, 8.8, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 25000, 8.8, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Alhena':
@@ -1016,8 +909,7 @@ while True:
         window.FindElement('Radius').Update(3.3)
         window.FindElement('Type').Update('Subgiant (IV)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 9260, 3.3, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 9260, 3.3, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Procyon':
@@ -1025,8 +917,7 @@ while True:
         window.FindElement('Radius').Update(2.048)
         window.FindElement('Type').Update('Subgiant (IV)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 6530, 2.048, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 6530, 2.048, values['TexColor'])
         window['Preview'].update("temp.png")
         
     if event == 'Delta Pavonis':
@@ -1034,8 +925,7 @@ while True:
         window.FindElement('Radius').Update(1.22)
         window.FindElement('Type').Update('Subgiant (IV)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 5604, 1.22, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5604, 1.22, values['TexColor'])
         window['Preview'].update("temp.png")
         
     if event == 'Rana':
@@ -1043,8 +933,7 @@ while True:
         window.FindElement('Radius').Update(2.327)
         window.FindElement('Type').Update('Subgiant (IV)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 5055, 2.327, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5055, 2.327, values['TexColor'])
         window['Preview'].update("temp.png")
 
     if event == 'Hatysa':
@@ -1052,8 +941,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Giant (III)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 32500, 1, values['TexColor'], type='Giant (III)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 32500, 1, values['TexColor'], star_type='Giant (III)')
         window['Preview'].update("temp.png")
 
     if event == 'Alcyone':
@@ -1061,8 +949,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Giant (III)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 12258, 1, values['TexColor'], type='Giant (III)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 12258, 1, values['TexColor'], star_type='Giant (III)')
         window['Preview'].update("temp.png")
 
     if event == 'Miaplacidus':
@@ -1070,8 +957,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Giant (III)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 8866, 1, values['TexColor'], type='Giant (III)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 8866, 1, values['TexColor'], star_type='Giant (III)')
         window['Preview'].update("temp.png")
 
     if event == 'Caph':
@@ -1079,8 +965,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Giant (III)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 7079, 1, values['TexColor'], type='Giant (III)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 7079, 1, values['TexColor'], star_type='Giant (III)')
         window['Preview'].update("temp.png")
         
     if event == 'Capella':
@@ -1088,8 +973,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Giant (III)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 4970, 1, values['TexColor'], type='Giant (III)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 4970, 1, values['TexColor'], star_type='Giant (III)')
         window['Preview'].update("temp.png")
         
     if event == 'Arcturus':
@@ -1097,8 +981,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Giant (III)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 4286, 1, values['TexColor'], type='Giant (III)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 4286, 1, values['TexColor'], star_type='Giant (III)')
         window['Preview'].update("temp.png")
 
     if event == 'Gacrux':
@@ -1106,8 +989,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Giant (III)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3689, 1, values['TexColor'], type='Giant (III)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3689, 1, values['TexColor'], star_type='Giant (III)')
         window['Preview'].update("temp.png")
 
     if event == 'Mintaka':
@@ -1115,8 +997,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Bright Giant (II)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 29500, 1, values['TexColor'], type='Bright Giant (II)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 29500, 1, values['TexColor'], star_type='Bright Giant (II)')
         window['Preview'].update("temp.png")
 
     if event == 'Sheliak':
@@ -1124,8 +1005,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Bright Giant (II)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 13300, 1, values['TexColor'], type='Bright Giant (II)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 13300, 1, values['TexColor'], star_type='Bright Giant (II)')
         window['Preview'].update("temp.png")
 
     if event == 'Canopus':
@@ -1133,8 +1013,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Bright Giant (II)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 7400, 1, values['TexColor'], type='Bright Giant (II)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 7400, 1, values['TexColor'], star_type='Bright Giant (II)')
         window['Preview'].update("temp.png")
 
     if event == 'Sargas':
@@ -1142,8 +1021,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Bright Giant (II)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 7268, 1, values['TexColor'], type='Bright Giant (II)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 7268, 1, values['TexColor'], star_type='Bright Giant (II)')
         window['Preview'].update("temp.png")
         
     if event == 'Kraz':
@@ -1151,8 +1029,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Bright Giant (II)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 5100, 1, values['TexColor'], type='Bright Giant (II)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5100, 1, values['TexColor'], star_type='Bright Giant (II)')
         window['Preview'].update("temp.png")
         
     if event == 'Tarazed':
@@ -1160,8 +1037,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Bright Giant (II)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 4210, 1, values['TexColor'], type='Bright Giant (II)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 4210, 1, values['TexColor'], star_type='Bright Giant (II)')
         window['Preview'].update("temp.png")
 
     if event == 'Delta Sagittae':
@@ -1169,8 +1045,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Bright Giant (II)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3660, 1, values['TexColor'], type='Bright Giant (II)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3660, 1, values['TexColor'], star_type='Bright Giant (II)')
         window['Preview'].update("temp.png")
 
     if event == '19 Cephei':
@@ -1178,8 +1053,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ib)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 32983, 1, values['TexColor'], type='Supergiant (Ib)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 32983, 1, values['TexColor'], star_type='Supergiant (Ib)')
         window['Preview'].update("temp.png")
 
     if event == 'Tseen Ke':
@@ -1187,8 +1061,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ib)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 14600, 1, values['TexColor'], type='Supergiant (Ib)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 14600, 1, values['TexColor'], star_type='Supergiant (Ib)')
         window['Preview'].update("temp.png")
 
     if event == 'Aspidiske':
@@ -1196,8 +1069,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ib)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 7500, 1, values['TexColor'], type='Supergiant (Ib)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 7500, 1, values['TexColor'], star_type='Supergiant (Ib)')
         window['Preview'].update("temp.png")
 
     if event == 'Mirfak':
@@ -1205,8 +1077,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ib)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 6350, 1, values['TexColor'], type='Supergiant (Ib)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 6350, 1, values['TexColor'], star_type='Supergiant (Ib)')
         window['Preview'].update("temp.png")
         
     if event == 'Mebsuta':
@@ -1214,8 +1085,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ib)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 4662, 1, values['TexColor'], type='Supergiant (Ib)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 4662, 1, values['TexColor'], star_type='Supergiant (Ib)')
         window['Preview'].update("temp.png")
         
     if event == 'Enif':
@@ -1223,8 +1093,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ib)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 4379, 1, values['TexColor'], type='Supergiant (Ib)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 4379, 1, values['TexColor'], star_type='Supergiant (Ib)')
         window['Preview'].update("temp.png")
 
     if event == 'Rasalgethi':
@@ -1232,8 +1101,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ib)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3280, 1, values['TexColor'], type='Supergiant (Ib)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3280, 1, values['TexColor'], star_type='Supergiant (Ib)')
         window['Preview'].update("temp.png")
 
     if event == 'Alnitak':
@@ -1241,8 +1109,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Iab)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 29500, 1, values['TexColor'], type='Supergiant (Iab)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 29500, 1, values['TexColor'], star_type='Supergiant (Iab)')
         window['Preview'].update("temp.png")
 
     if event == 'Polis':
@@ -1250,8 +1117,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Iab)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 12000, 1, values['TexColor'], type='Supergiant (Iab)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 12000, 1, values['TexColor'], star_type='Supergiant (Iab)')
         window['Preview'].update("temp.png")
 
     if event == 'Nu Cephei':
@@ -1259,8 +1125,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Iab)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 8800, 1, values['TexColor'], type='Supergiant (Iab)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 8800, 1, values['TexColor'], star_type='Supergiant (Iab)')
         window['Preview'].update("temp.png")
 
     if event == 'Eta Aquilae':
@@ -1268,8 +1133,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Iab)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 6000, 1, values['TexColor'], type='Supergiant (Iab)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 6000, 1, values['TexColor'], star_type='Supergiant (Iab)')
         window['Preview'].update("temp.png")
         
     if event == 'Azmidi':
@@ -1277,8 +1141,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Iab)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 4880, 1, values['TexColor'], type='Supergiant (Iab)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 4880, 1, values['TexColor'], star_type='Supergiant (Iab)')
         window['Preview'].update("temp.png")
         
     if event == 'Omicron1 Cygni':
@@ -1286,8 +1149,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Iab)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 4043, 1, values['TexColor'], type='Supergiant (Iab)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 4043, 1, values['TexColor'], star_type='Supergiant (Iab)')
         window['Preview'].update("temp.png")
 
     if event == 'Betelgeuse':
@@ -1295,8 +1157,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Iab)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3500, 1, values['TexColor'], type='Supergiant (Iab)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3500, 1, values['TexColor'], star_type='Supergiant (Iab)')
         window['Preview'].update("temp.png")
 
     if event == 'Alpha Camelopardalis':
@@ -1304,8 +1165,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ia)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 30000, 1, values['TexColor'], type='Supergiant (Ia)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 30000, 1, values['TexColor'], star_type='Supergiant (Ia)')
         window['Preview'].update("temp.png")
 
     if event == 'Rigel':
@@ -1313,8 +1173,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ia)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 12100, 1, values['TexColor'], type='Supergiant (Ia)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 12100, 1, values['TexColor'], star_type='Supergiant (Ia)')
         window['Preview'].update("temp.png")
 
     if event == 'Deneb':
@@ -1322,8 +1181,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ia)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 8525, 1, values['TexColor'], type='Supergiant (Ia)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 8525, 1, values['TexColor'], star_type='Supergiant (Ia)')
         window['Preview'].update("temp.png")
 
     if event == 'Wezen':
@@ -1331,8 +1189,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ia)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 6390, 1, values['TexColor'], type='Supergiant (Ia)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 6390, 1, values['TexColor'], star_type='Supergiant (Ia)')
         window['Preview'].update("temp.png")
         
     if event == 'Y Ophiuchi':
@@ -1340,8 +1197,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ia)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 5250, 1, values['TexColor'], type='Supergiant (Ia)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5250, 1, values['TexColor'], star_type='Supergiant (Ia)')
         window['Preview'].update("temp.png")
         
     if event == '5 Lacertae':
@@ -1349,8 +1205,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ia)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3713, 1, values['TexColor'], type='Supergiant (Ia)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3713, 1, values['TexColor'], star_type='Supergiant (Ia)')
         window['Preview'].update("temp.png")
 
     if event == 'Mu Cephei':
@@ -1358,8 +1213,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Supergiant (Ia)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3551, 1, values['TexColor'], type='Supergiant (Ia)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3551, 1, values['TexColor'], star_type='Supergiant (Ia)')
         window['Preview'].update("temp.png")
 
     if event == 'P Cygni':
@@ -1367,8 +1221,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Hypergiant (Ia+)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 18700, 1, values['TexColor'], type='Hypergiant (Ia+)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 18700, 1, values['TexColor'], star_type='Hypergiant (Ia+)')
         window['Preview'].update("temp.png")
 
     if event == '6 Cassiopeiae':
@@ -1376,8 +1229,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Hypergiant (Ia+)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 10023, 1, values['TexColor'], type='Hypergiant (Ia+)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 10023, 1, values['TexColor'], star_type='Hypergiant (Ia+)')
         window['Preview'].update("temp.png")
 
     if event == 'IRC +10420':
@@ -1385,8 +1237,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Hypergiant (Ia+)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 7930, 1, values['TexColor'], type='Hypergiant (Ia+)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 7930, 1, values['TexColor'], star_type='Hypergiant (Ia+)')
         window['Preview'].update("temp.png")
         
     if event == 'V382 Carinae':
@@ -1394,8 +1245,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Hypergiant (Ia+)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 5625, 1, values['TexColor'], type='Hypergiant (Ia+)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5625, 1, values['TexColor'], star_type='Hypergiant (Ia+)')
         window['Preview'].update("temp.png")
         
     if event == 'RW Cephei':
@@ -1403,8 +1253,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Hypergiant (Ia+)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3956, 1, values['TexColor'], type='Hypergiant (Ia+)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3956, 1, values['TexColor'], star_type='Hypergiant (Ia+)')
         window['Preview'].update("temp.png")
 
     if event == 'VY Canis Majoris':
@@ -1412,8 +1261,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Hypergiant (Ia+)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3490, 1, values['TexColor'], type='Hypergiant (Ia+)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3490, 1, values['TexColor'], star_type='Hypergiant (Ia+)')
         window['Preview'].update("temp.png")
 
     if event == 'RU Camelopardalis':
@@ -1421,8 +1269,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Carbon star (C)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 5250, 1, values['TexColor'], type='Carbon star (C)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 5250, 1, values['TexColor'], star_type='Carbon star (C)')
         window['Preview'].update("temp.png")
         
     if event == 'V Arietis':
@@ -1430,8 +1277,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Carbon star (C)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 3540, 1, values['TexColor'], type='Carbon star (C)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 3540, 1, values['TexColor'], star_type='Carbon star (C)')
         window['Preview'].update("temp.png")
         
     if event == 'La Superba':
@@ -1439,8 +1285,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Carbon star (C)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 2750, 1, values['TexColor'], type='Carbon star (C)')
-        true_final.save("temp.png")
+        true_final = CreateStar(512, 2750, 1, values['TexColor'], star_type='Carbon star (C)')
         window['Preview'].update("temp.png")
 
     if event == 'R Leporis':
@@ -1448,8 +1293,8 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Carbon star (C)')
         window['Radius'].update(disabled=True, text_color='#444444')
-        true_final = create_noise(512, 2290, 1, values['TexColor'], type='Carbon star (C)')
-        true_final.save("temp.png")
+        true_final = CreateStar(1000, 2290, 1, values['TexColor'], star_type='Carbon star (C)')
+        true_final.create_noise()
         window['Preview'].update("temp.png")
 
     if event == 'Reset':
@@ -1457,8 +1302,7 @@ while True:
         window.FindElement('Radius').Update(1)
         window.FindElement('Type').Update('Main sequence (V)')
         window['Radius'].update(disabled=False, text_color='#FFFFFF')
-        true_final = create_noise(512, 5772, 1, values['TexColor'])
-        true_final.save("temp.png")
+        true_final = CreateStar(1000, 5772, 1, values['TexColor'])
         window['Preview'].update("temp.png")
         
     if values['TexType'] == True:
@@ -1470,28 +1314,28 @@ while True:
         window.FindElement('Seed').Update(random.randint(-20000,20000))
     if event == 'Refresh':
         if values['Type'] == 'Subgiant (IV)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Subgiant (IV)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Subgiant (IV)')
         elif values['Type'] == 'Giant (III)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Giant (III)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Giant (III)')
         elif values['Type'] == 'Bright Giant (II)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Bright Giant (II)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Bright Giant (II)')
         elif values['Type'] == 'Supergiant (Ib)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Supergiant (Ib)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Supergiant (Ib)')
         elif values['Type'] == 'Supergiant (Iab)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Supergiant (Iab)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Supergiant (Iab)')
         elif values['Type'] == 'Supergiant (Ia)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Supergiant (Ia)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Supergiant (Ia)')
         elif values['Type'] == 'Hypergiant (Ia+)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Hypergiant (Ia+)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Hypergiant (Ia+)')
         elif values['Type'] == 'Carbon star (C)':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], type='Carbon star (C)')
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], star_type='Carbon star (C)')
         elif values['Spectrum'] == 'None':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'])
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'])
         elif values['Spectrum'] == 'Sun':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Sun"])
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Sun"])
         elif values['Spectrum'] == 'Vega':
-            true_final = create_noise(512, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Vega"])
-        true_final.save("temp.png")
+            true_final = CreateStar(512, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Vega"])
+        true_final.create_noise()
         window['Preview'].update("temp.png")
 
     if event == 'Generate':
@@ -1503,69 +1347,83 @@ while True:
         else:
             size = round(eval(values['TexSize']))
             if values['Type'] == 'Subgiant (IV)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Subgiant (IV)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Subgiant (IV)')
             elif values['Type'] == 'Giant (III)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Giant (III)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Giant (III)')
             elif values['Type'] == 'Bright Giant (II)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Bright Giant (II)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Bright Giant (II)')
             elif values['Type'] == 'Supergiant (Ib)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Supergiant (Ib)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Supergiant (Ib)')
             elif values['Type'] == 'Supergiant (Iab)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Supergiant (Iab)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Supergiant (Iab)')
             elif values['Type'] == 'Supergiant (Ia)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Supergiant (Ia)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Supergiant (Ia)')
             elif values['Type'] == 'Hypergiant (Ia+)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Hypergiant (Ia+)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Hypergiant (Ia+)')
             elif values['Type'] == 'Carbon star (C)':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], type='Carbon star (C)')
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], star_type='Carbon star (C)')
             elif values['Spectrum'] == 'None':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'])
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'])
             elif values['Spectrum'] == 'Sun':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Sun"])
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Sun"])
             elif values['Spectrum'] == 'Vega':
-                true_final = create_noise(size, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Vega"])
+                true_final = CreateStar(size, values['Temperature'], values['Radius'], values['TexColor'], spectrum=spectra["Vega"])
                 
-            if values['Filename'] == '':
-                #window['Output'].update('Error: missing filename!')
-                STG = 'StarTex'
-                dash = '-'
-                Sn = values['Seed']
-                St = values['Temperature']
-                Sr = values['Radius']
-                if values['Type'] == 'Main sequence (V)':
-                    Stype = '1'
-                elif values['Type'] == 'Subgiant (IV)':
-                    Stype = '2'
-                elif values['Type'] == 'Giant (III)':
-                    Stype = '3'
-                elif values['Type'] == 'Bright Giant (II)':
-                    Stype = '4'
-                elif values['Type'] == 'Supergiant (Ib)':
-                    Stype = '5'
-                elif values['Type'] == 'Supergiant (Iab)':
-                    Stype = '6'
-                elif values['Type'] == 'Supergiant (Ia)':
-                    Stype = '7'
-                elif values['Type'] == 'Hypergiant (Ia+)':
-                    Stype = '8'
-                elif values['Type'] == 'Carbon star (C)':
-                    Stype = '9'
-                elif values['Type'] == 'Wolf-rayet (W)':
-                    Stype = '10'
-                elif values['Type'] == 'White dwarf (D)':
-                    Stype = '11'
-                elif values['Type'] == 'Neutron star':
-                    Stype = '12'
-
-                if values['TexColor'] == 'D65':
-                    Stc = '1'
-                elif values['TexColor'] == 'Spectrum':
-                    Stc = '2'
-                Str = values['TexSize']
-                name = STG + dash + Sn + dash + St + dash + Sr + dash + Stype + dash + Stc + dash + Str
-                true_final.save('%s.png' % name)
-            else:
-                true_final.save('%s.png' % values['Filename'])
+            #if values['Filename'] == '':
+            STG = 'StarTex'
+            dash = '-'
+            Sn = values['Seed']
+            St = values['Temperature']
+            Sr = values['Radius']
+            if values['Type'] == 'Main sequence (V)':
+                Stype = '1'
+            elif values['Type'] == 'Subgiant (IV)':
+                Stype = '2'
+            elif values['Type'] == 'Giant (III)':
+                Stype = '3'
+            elif values['Type'] == 'Bright Giant (II)':
+                Stype = '4'
+            elif values['Type'] == 'Supergiant (Ib)':
+                Stype = '5'
+            elif values['Type'] == 'Supergiant (Iab)':
+                Stype = '6'
+            elif values['Type'] == 'Supergiant (Ia)':
+                Stype = '7'
+            elif values['Type'] == 'Hypergiant (Ia+)':
+                Stype = '8'
+            elif values['Type'] == 'Carbon star (C)':
+                Stype = '9'
+            elif values['Type'] == 'Wolf-rayet (W)':
+                Stype = '10'
+            elif values['Type'] == 'White dwarf (D)':
+                Stype = '11'
+            elif values['Type'] == 'Neutron star':
+                Stype = '12'
+            if values['TexColor'] == 'D65':
+                Stc = '1'
+            elif values['TexColor'] == 'Spectrum':
+                Stc = '2'
+            Str = values['TexSize']
+            name = STG + dash + Sn + dash + St + dash + Sr + dash + Stype + dash + Stc + dash + Str
+            true_final.create_noise()
+                #true_final.save('%s.png' % name)
+            #else:
+            #    true_final.save('%s.png' % values['Filename'])
             window['Output'].update('Texture generated!')
 window.close()
-#window3.close()
+
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser(conflict_handler='resolve')
+    arg_parser.add_argument("-st", "--star_type", dest='star_type', default='Main sequence (V)', action='store', help='Set a star type')
+    arg_parser.add_argument("-s", "--size", dest='size', action='store', help='Set a star size')
+    arg_parser.add_argument("-t", "--temp", dest='temperature', action='store', help='Set a star temperature')
+    arg_parser.add_argument("-r", "--rad", dest='radius', default=1, action='store', help='Set a star radius')
+    arg_parser.add_argument("-c", "--col", dest='colors', action='store', help='Set a star color')
+    arg_parser.add_argument("-sp", "--spec", dest='spectrum', default=None, action='store', help='Set a star spectrum')
+    arg_parser.add_argument("-se", "--seed", dest='seed', default=random.randint(-20000,20000), action='store', help='Set a star seed')
+    arg_parser.add_argument("-m", "--multiplier", dest='multiplier', default=100, action='store', help='Set a star multiplier')
+
+    args = vars(arg_parser.parse_args())
+    star = CreateStar(**args)
+    star.create_noise()
